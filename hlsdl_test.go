@@ -12,8 +12,8 @@ import (
 // https://www.radiantmediaplayer.com/docs/latest/aes-hls-documentation.html
 
 const (
-	testUrl  = "https://moctobpltc-i.akamaihd.net/hls/live/571329/eight/stream_2000.m3u8"
-	testUrl2 = "https://www.radiantmediaplayer.com/media/rmp-segment/bbb-abr-aes/chunklist_b607794.m3u8"
+	testUrl  = "https://www.radiantmediaplayer.com/media/rmp-segment/bbb-abr-aes/chunklist_b607794.m3u8"
+	testUrl2 = "https://moctobpltc-i.akamaihd.net/hls/live/571329/eight/stream_2000.m3u8"
 )
 
 func TestDecrypt(t *testing.T) {

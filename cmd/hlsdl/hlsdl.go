@@ -6,7 +6,7 @@ import (
 	"os"
 	"strings"
 
-	"github.com/canhlinh/hlsdl"
+	"github.com/maxerenberg/hlsdl"
 	"github.com/spf13/cobra"
 	flag "github.com/spf13/pflag"
 )

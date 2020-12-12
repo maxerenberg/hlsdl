@@ -48,7 +48,7 @@ func main() {
 ### CLI Installation
 
 ```
-go get -u github.com/maxerenberg/hlsdl/cmd/hlsdl
+go install github.com/maxerenberg/hlsdl/cmd/hlsdl
 ```
 The command `hlsdl` will now be available in your $GOBIN directory.
 

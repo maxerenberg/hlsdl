@@ -2,7 +2,6 @@ package hlsdl
 
 import (
 	"errors"
-	"log"
 	"net/http"
 	"net/url"
 	"strings"
@@ -24,8 +23,8 @@ func parseHlsSegments(
 	if err != nil {
 		return nil, err
 	}
+	// TODO: add support for m3u8.MASTER
 	if t != m3u8.MEDIA {
-		log.Printf("ListType: %d\n", t)
 		return nil, errors.New("No support the m3u8 format")
 	}
 
