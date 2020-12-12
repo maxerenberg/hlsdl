@@ -3,6 +3,7 @@ package hlsdl
 import (
 	"errors"
 	"log"
+	"net/http"
 	"net/url"
 	"os"
 	"strings"
@@ -16,7 +17,12 @@ type SegmentPuller struct {
 	Err     error
 }
 
-func pullSegment(hlsURL string, quitSignal chan os.Signal) chan *SegmentPuller {
+func pullSegment(
+	client *http.Client,
+	hlsURL string,
+	headers map[string]string,
+	quitSignal chan os.Signal,
+) chan *SegmentPuller {
 	c := make(chan *SegmentPuller)
 
 	go func() {
@@ -31,7 +37,7 @@ func pullSegment(hlsURL string, quitSignal chan os.Signal) chan *SegmentPuller {
 		pulledSegment := map[uint64]bool{}
 
 		for {
-			p, t, err := getM3u8ListType(hlsURL)
+			p, t, err := getM3u8ListType(client, hlsURL, headers)
 			if err != nil {
 				c <- &SegmentPuller{Err: err}
 				return

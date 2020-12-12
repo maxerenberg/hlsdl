@@ -7,21 +7,20 @@ import (
 	"net/http"
 	"os"
 	"os/signal"
-	"path/filepath"
 )
 
 type Recorder struct {
-	client *http.Client
-	dir    string
-	url    string
-	runing bool
+	client     *http.Client
+	outputPath string
+	url        string
+	runing     bool
 }
 
-func NewRecorder(url string, dir string) *Recorder {
+func NewRecorder(url string, outputPath string) *Recorder {
 	return &Recorder{
-		url:    url,
-		dir:    dir,
-		client: &http.Client{},
+		url:        url,
+		outputPath: outputPath,
+		client:     &http.Client{},
 	}
 }
 
@@ -31,10 +30,10 @@ func (r *Recorder) Start() (string, error) {
 
 	quitSignal := make(chan os.Signal, 1)
 	signal.Notify(quitSignal, os.Interrupt)
-	puller := pullSegment(r.url, quitSignal)
+	// TODO: pass headers from args
+	puller := pullSegment(r.client, r.url, nil, quitSignal)
 
-	filePath := filepath.Join(r.dir, "video.ts")
-	file, err := os.Create(filePath)
+	file, err := os.Create(r.outputPath)
 	if err != nil {
 		return "", err
 	}
@@ -64,7 +63,7 @@ LOOP:
 		log.Println("Recorded segment ", segment.Segment.SeqId)
 	}
 
-	return filePath, nil
+	return r.outputPath, nil
 }
 
 type DownloadSegmentReport struct {
@@ -86,7 +85,7 @@ func (r *Recorder) downloadSegmentC(segment *Segment) chan *DownloadSegmentRepor
 }
 
 func (r *Recorder) downloadSegment(segment *Segment) ([]byte, error) {
-
+	// TODO: include segment headers in request
 	res, err := r.client.Get(segment.URI)
 	if err != nil {
 		return nil, err

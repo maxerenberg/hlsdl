@@ -29,7 +29,7 @@ func (hlsDl *HlsDl) Decrypt(segment *Segment) ([]byte, error) {
 			return nil, err
 		}
 
-		log.Println("Descrypting", len(key), len(iv))
+		log.Printf("Decrypting %d bytes\n", len(data))
 		data, err = AES128Decrypt(data, key, iv)
 	}
 

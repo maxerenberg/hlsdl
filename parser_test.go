@@ -1,11 +1,16 @@
 package hlsdl
 
 import (
+	"net/http"
 	"testing"
 )
 
 func Test(t *testing.T) {
-	_, err := parseHlsSegments("https://cdn.theoplayer.com/video/big_buck_bunny_encrypted/stream-800/index.m3u8")
+	_, err := parseHlsSegments(
+		&http.Client{},
+		"https://moctobpltc-i.akamaihd.net/hls/live/571329/eight/stream_2000.m3u8",
+		nil,
+	)
 	if err != nil {
 		t.Fatal(err)
 	}
