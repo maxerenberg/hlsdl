@@ -1,24 +1,19 @@
 package main
 
 import (
-	"fmt"
+	"io"
+	"os"
 
 	"github.com/maxerenberg/hlsdl"
 )
 
 func main() {
-	hlsDL := hlsdl.New(
-		"https://bitdash-a.akamaihd.net/content/sintel/hls/video/1500kbit.m3u8",
-		"video.ts",
-		false,
-		nil, nil, nil,
-		4,
-		true,
-	)
-	filepath, err := hlsDL.Download()
+	url := "https://bitdash-a.akamaihd.net/content/sintel/hls/video/1500kbit.m3u8"
+	reader, err := hlsdl.Download(url)
 	if err != nil {
 		panic(err)
 	}
-
-	fmt.Println(filepath)
+	file, _ := os.Create("video.ts")
+	io.Copy(file, reader)
+	file.Close()
 }

@@ -2,8 +2,9 @@ package main
 
 import (
 	"fmt"
-	"log"
+	"io"
 	"os"
+	"os/signal"
 	"strings"
 
 	"github.com/maxerenberg/hlsdl"
@@ -11,9 +12,16 @@ import (
 	flag "github.com/spf13/pflag"
 )
 
+// channel for receiving Interrupt signals
+var sigChan chan os.Signal = make(chan os.Signal, 1)
+
+func init() {
+	signal.Notify(sigChan, os.Interrupt)
+}
+
 var cmd = &cobra.Command{
 	Use:          "hlsdl <URL>",
-	Short:        "Downloads an HLS video from an M3U8 URL",
+	Short:        "Download an HLS video from an M3U8 URL",
 	Args:         cobra.ExactArgs(1),
 	RunE:         cmdF,
 	SilenceUsage: true,
@@ -21,18 +29,11 @@ var cmd = &cobra.Command{
 
 func main() {
 	cmd.Flags().StringP("output", "o", "video.ts", "The name of the output file")
-	cmd.Flags().BoolP("keep", "k", false, "Keep segments after downloading")
-	cmd.Flags().BoolP("record", "r", false, "Indicate whether the m3u8 is a live stream video and you want to record it")
 	cmd.Flags().IntP("workers", "w", 2, "Number of workers to execute concurrent operations")
-	cmd.Flags().StringArray(
-		"playlist-header", []string{},
-		"HTTP header for fetching playlist (may be specified multiple times)")
-	cmd.Flags().StringArray(
-		"segment-header", []string{},
-		"HTTP header for fetching segment (may be specified multiple times)")
-	cmd.Flags().StringArray(
-		"key-header", []string{},
-		"HTTP header for fetching decryption key (may be specified multiple times)")
+	cmd.Flags().BoolP("quiet", "q", false, "No progress bar")
+	cmd.Flags().StringArrayP(
+		"add-header", "H", []string{},
+		"HTTP header to use (may be specified multiple times)")
 	cmd.SetArgs(os.Args[1:])
 
 	if err := cmd.Execute(); err != nil {
@@ -48,44 +49,41 @@ func cmdF(command *cobra.Command, args []string) (err error) {
 	if err != nil {
 		return
 	}
-
-	keep, err := flags.GetBool("keep")
+	outputFile, err := os.Create(outputPath)
 	if err != nil {
 		return
 	}
-
+	defer outputFile.Close()
 	workers, err := flags.GetInt("workers")
 	if err != nil {
 		return
 	}
-
-	playlistHeadersMap, err := makeHeadersFromFlags(flags, "playlist-header")
+	quiet, err := flags.GetBool("quiet")
+	if err != nil {
+		return
+	}
+	headersMap, err := makeHeadersFromFlags(flags, "add-header")
 	if err != nil {
 		return
 	}
 
-	segmentHeadersMap, err := makeHeadersFromFlags(flags, "segment-header")
+	client := &hlsdl.Client{
+		NumWorkers: workers,
+		EnableBar:  !quiet,
+		Headers:    headersMap,
+	}
+	// stop the downloading if we get a signal
+	go func() {
+		<-sigChan
+		println("Received Interrupt signal, stopping now.")
+		client.Stop()
+	}()
+	reader, err := client.Do(m3u8URL)
 	if err != nil {
 		return
 	}
-
-	keyHeadersMap, err := makeHeadersFromFlags(flags, "key-header")
-	if err != nil {
-		return
-	}
-
-	if record, err := flags.GetBool("record"); err != nil {
-		return err
-	} else if record {
-		return recordLiveStream(hlsdl.NewRecorder(
-			m3u8URL, outputPath,
-		))
-	}
-
-	return downloadVodMovie(hlsdl.New(
-		m3u8URL, outputPath, keep, playlistHeadersMap, segmentHeadersMap,
-		keyHeadersMap, workers, true,
-	))
+	_, err = io.Copy(outputFile, reader)
+	return
 }
 
 func makeHeadersFromFlags(flags *flag.FlagSet, name string) (map[string]string, error) {
@@ -110,24 +108,4 @@ func makeHeadersFromArray(headers []string) (map[string]string, error) {
 		headersMap[tokens[0]] = tokens[1]
 	}
 	return headersMap, nil
-}
-
-func downloadVodMovie(hlsDl *hlsdl.HlsDl) (err error) {
-	filepath, err := hlsDl.Download()
-	if err != nil {
-		return
-	}
-	log.Println("Downloaded file to " + filepath)
-	return
-}
-
-func recordLiveStream(recorder *hlsdl.Recorder) error {
-	recordedFile, err := recorder.Start()
-	if err != nil {
-		os.RemoveAll(recordedFile)
-		return err
-	}
-
-	log.Println("Recorded file at ", recordedFile)
-	return nil
 }

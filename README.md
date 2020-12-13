@@ -1,18 +1,20 @@
 # HLS downloader
-This is a library and application to download an HLS video from a m3u8 file. All ts segments
+This is a library and application to download an HLS video from a m3u8 file. All segments
 will be downloaded individually and then concatenated into a single TS file. The default file
 name is `video.ts`.
 
 
-### Features:
+### Features
 * Concurrent download segments with multiple HTTP connections
 * Decrypt HLS encoded segments
-* Auto retry download
 * Display downloading progress bar
-* Record a live stream video
 
+### Limitations
+* Master playlists are not supported (playlists which point to other playlists)
+* Fragmented MP4 (fMP4) is not supported (only MPEG-TS)
+* Playlists with the EXT-X-MAP tag are not supported
 
-### Library usage
+## Library usage
 
 Get the library:
 ```
@@ -25,27 +27,26 @@ Sample:
 package main
 
 import (
+	"io"
+	"os"
+
 	"github.com/maxerenberg/hlsdl"
 )
 
 func main() {
-	hlsDl := New(
-		"https://bitdash-a.akamaihd.net/content/sintel/hls/video/10000kbit.m3u8",
-		"video.ts",
-		false,
-		nil, nil, nil,
-		2,
-		false,
-	)
-	filepath, err := hlsDl.Download()
+	url := "https://bitdash-a.akamaihd.net/content/sintel/hls/video/1500kbit.m3u8"
+	reader, err := hlsdl.Download(url)
 	if err != nil {
 		panic(err)
 	}
+	file, _ := os.Create("video.ts")
+	io.Copy(file, reader)
+	file.Close()
 }
 
 ```
 
-### CLI Installation
+## CLI Installation
 
 ```
 go install github.com/maxerenberg/hlsdl/cmd/hlsdl
@@ -57,14 +58,12 @@ To see all options, run `hlsdl --help`.
 
 ### Example usage
 
-Download a static video:
-
 ```
-./bin/hlsdl https://bitdash-a.akamaihd.net/content/sintel/hls/video/1500kbit.m3u8 -w 4
+$ hlsdl "https://bitdash-a.akamaihd.net/content/sintel/hls/video/1500kbit.m3u8"
 ```
 
-Record a live stream video:
-
+You can also specify custom HTTP headers:
 ```
-./bin/hlsdl "http://cdn1.live-tv.od.ua:8081/bbb/bbbtv-abr/bbb/bbbtv-720p/chunks.m3u8?nimblesessionid=62115268" --record
+$ hlsdl -H "Accept-Language: en-US,en;q=0.5" \
+	"https://bitdash-a.akamaihd.net/content/sintel/hls/video/1500kbit.m3u8"
 ```

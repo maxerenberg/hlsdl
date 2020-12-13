@@ -1,65 +1,73 @@
 package hlsdl
 
 import (
-	"fmt"
-	"net/http"
-	"os"
+	"io"
+	"io/ioutil"
 	"testing"
+	"time"
 )
 
 // stream URLS taken from here:
 // https://ottverse.com/free-hls-m3u8-test-urls/
 // https://www.radiantmediaplayer.com/docs/latest/aes-hls-documentation.html
+// https://github.com/video-dev/hls.js/blob/master/tests/test-streams.js
 
 const (
-	testUrl  = "https://www.radiantmediaplayer.com/media/rmp-segment/bbb-abr-aes/chunklist_b607794.m3u8"
-	testUrl2 = "https://moctobpltc-i.akamaihd.net/hls/live/571329/eight/stream_2000.m3u8"
+	testUrl  = "https://moctobpltc-i.akamaihd.net/hls/live/571329/eight/stream_2000.m3u8"
+	testUrl2 = "https://www.radiantmediaplayer.com/media/rmp-segment/bbb-abr-aes/chunklist_b607794.m3u8"
+	testUrl3 = "https://playertest.longtailvideo.com/adaptive/oceans_aes/oceans_aes-audio=65000-video=236000.m3u8"
 )
 
-func TestDecrypt(t *testing.T) {
-	segs, err := parseHlsSegments(
-		&http.Client{},
-		testUrl,
-		nil,
-	)
-	if err != nil {
-		t.Fatal(err)
-	}
-
-	hlsDl := New(
-		testUrl,
-		"video.ts",
-		false,
-		nil, nil, nil,
-		2,
-		false,
-	)
-
-	seg := segs[0]
-	seg.Path = fmt.Sprintf("seg%d.ts", seg.SeqId)
-	defer os.Remove(seg.Path)
-	if err := hlsDl.downloadSegment(seg); err != nil {
-		t.Fatal(err)
-	}
-
-	if _, err := hlsDl.Decrypt(seg); err != nil {
-		t.Fatal(err)
-	}
+func init() {
+	EnableDebugMessages()
 }
 
-func TestDownload(t *testing.T) {
-
-	hlsDl := New(
-		testUrl2,
-		"video.ts",
-		false,
-		nil, nil, nil,
-		2,
-		false,
-	)
-	filepath, err := hlsDl.Download()
-	defer os.Remove(filepath)
+func doDownload(url string, t *testing.T) {
+	reader, err := Download(url)
 	if err != nil {
 		t.Fatal(err)
+	}
+	io.Copy(ioutil.Discard, reader)
+	return
+}
+
+func TestUnencrypted(t *testing.T) {
+	doDownload(testUrl, t)
+}
+
+func TestEncrypted(t *testing.T) {
+	doDownload(testUrl2, t)
+}
+
+func TestEncryptedNoIV(t *testing.T) {
+	doDownload(testUrl3, t)
+}
+
+func TestStop(t *testing.T) {
+	var err error
+	for numWorkers := 1; numWorkers <= 2; numWorkers++ {
+		client := &Client{
+			NumWorkers: numWorkers,
+		}
+		done := make(chan bool)
+		go func() {
+			var reader io.Reader
+			reader, err = client.Do(testUrl)
+			io.Copy(ioutil.Discard, reader)
+			done <- true
+		}()
+		// sleep a bit to let the downloader start
+		time.Sleep(500 * time.Millisecond)
+		client.Stop()
+		timer := time.NewTimer(3 * time.Second)
+		select {
+		case <-done:
+			break
+		case <-timer.C:
+			t.Fatal("Stop operation timed out")
+		}
+		if err != nil {
+			t.Fatal(err)
+		}
 	}
 }
