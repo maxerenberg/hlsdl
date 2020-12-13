@@ -29,7 +29,7 @@ var cmd = &cobra.Command{
 
 func main() {
 	cmd.Flags().StringP("output", "o", "video.ts", "The name of the output file")
-	cmd.Flags().IntP("workers", "w", 2, "Number of workers to execute concurrent operations")
+	cmd.Flags().IntP("workers", "w", 0, "Number of concurrent workers")
 	cmd.Flags().BoolP("quiet", "q", false, "No progress bar")
 	cmd.Flags().StringArrayP(
 		"add-header", "H", []string{},
