@@ -3,6 +3,7 @@ package hlsdl
 import (
 	"crypto/aes"
 	"crypto/cipher"
+	"encoding/binary"
 	"encoding/hex"
 	"errors"
 	"io/ioutil"
@@ -102,14 +103,12 @@ func ivFromHexString(s string) (iv []byte, err error) {
 	return
 }
 
-func ivFromSeqNo(seqNo uint64) []byte {
+func ivFromSeqNo(seqNo uint64) (b []byte) {
 	// put big-endian binary representation into a 16-byte buffer,
 	// padding on the left with zeros
-	b := make([]byte, 16)
-	for i := 0; i < 8; i++ {
-		b[16-i-1] = byte(seqNo >> (i * 8))
-	}
-	return b
+	b = make([]byte, 16)
+	binary.BigEndian.PutUint64(b[8:], seqNo)
+	return
 }
 
 func aes128Decrypt(encrypted, key, iv []byte) ([]byte, error) {
