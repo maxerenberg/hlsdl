@@ -18,29 +18,29 @@ type Client struct {
 	// additional HTTP Headers when making requests
 	Headers map[string]string
 
-	// used for telling the workers to stop early
-	_syncChans []chan bool
+	// for telling the workers to stop early
+	shouldStop bool
+	// for ensuring that segments are written in the right order
+	syncChans []chan bool
 	// for a pretty display
-	_bar *pb.ProgressBar
+	bar *pb.ProgressBar
 }
 
 // Stops all the workers
 func (client *Client) Stop() {
-	for _, syncChan := range client._syncChans {
-		syncChan <- false
-	}
+	client.shouldStop = true
 }
 
 func initializeClient(client *Client) {
 	if client.NumWorkers <= 0 {
 		client.NumWorkers = runtime.NumCPU()
 	}
-	client._syncChans = make([]chan bool, client.NumWorkers)
+	client.syncChans = make([]chan bool, client.NumWorkers)
 	for i := 0; i < client.NumWorkers; i++ {
-		// Use a capacity of 2 so that after Stop() is called,
-		// workers don't block writing to a channel
-		client._syncChans[i] = make(chan bool, 2)
+		client.syncChans[i] = make(chan bool, 1)
 	}
+	client.shouldStop = false
+	client.bar = nil
 }
 
 // Do downloads an HLS video from a Request containing the URL of an
@@ -70,9 +70,9 @@ func (client *Client) Do(m3u8url string) (reader io.Reader, err error) {
 		return
 	}
 	if client.EnableBar {
-		client._bar = pb.New(len(mediaPlaylist.Segments)).SetMaxWidth(100).Prefix("Downloading...")
-		client._bar.ShowElapsedTime = true
-		client._bar.Start()
+		client.bar = pb.New(len(mediaPlaylist.Segments)).SetMaxWidth(100).Prefix("Downloading...")
+		client.bar.ShowElapsedTime = true
+		client.bar.Start()
 	}
 
 	reader, writer := io.Pipe()
@@ -90,12 +90,12 @@ func (client *Client) Do(m3u8url string) (reader io.Reader, err error) {
 			m3u8url,
 			mediaPlaylist.Segments,
 			writer,
-			client._syncChans[i],
-			client._syncChans[(i+1)%client.NumWorkers],
+			client.syncChans[i],
+			client.syncChans[(i+1)%client.NumWorkers],
 		)
 	}
 	// Kick the ball to get it rolling
-	client._syncChans[0] <- true
+	client.syncChans[0] <- true
 	return
 }
 
@@ -112,7 +112,7 @@ func (client *Client) downloadSegments(
 	if (len(segments)-1-idx)%client.NumWorkers == 0 {
 		defer writer.Close()
 		if client.EnableBar {
-			defer client._bar.Finish()
+			defer client.bar.Finish()
 		}
 	}
 	origIdx := idx
@@ -136,16 +136,16 @@ func (client *Client) downloadSegments(
 			panic(err)
 		}
 		if client.EnableBar {
-			client._bar.Increment()
+			client.bar.Increment()
 		}
-		allowedToContinue := <-allowMe
-		if !allowedToContinue {
-			logger.Printf("Worker %d stopping early\n", origIdx)
-			break
-		}
+		<-allowMe
 		// TODO: deal with case where write fails
 		writer.Write(data)
 		allowNext <- true
+		if client.shouldStop {
+			logger.Printf("Worker %d stopping early\n", origIdx)
+			break
+		}
 	}
 }
 
