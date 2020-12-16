@@ -19,27 +19,36 @@ type Client struct {
 	Headers map[string]string
 
 	// for telling the workers to stop early
-	shouldStop bool
-	// for ensuring that segments are written in the right order
-	syncChans []chan bool
+	workerStopChans []chan bool
+	// for telling the writer to stop early
+	writerStopChan chan bool
 	// for a pretty display
 	bar *pb.ProgressBar
 }
 
 // Stops all the workers
 func (client *Client) Stop() {
-	client.shouldStop = true
+	for _, stopChan := range client.workerStopChans {
+		select {
+			case stopChan <- true:
+			default:
+		}
+	}
+	select {
+		case client.writerStopChan <- true:
+		default:
+	}
 }
 
 func initializeClient(client *Client) {
 	if client.NumWorkers <= 0 {
 		client.NumWorkers = runtime.NumCPU()
 	}
-	client.syncChans = make([]chan bool, client.NumWorkers)
-	for i := 0; i < client.NumWorkers; i++ {
-		client.syncChans[i] = make(chan bool, 1)
+	client.workerStopChans = make([]chan bool, client.NumWorkers)
+	for i := range client.workerStopChans {
+		client.workerStopChans[i] = make(chan bool, 1)
 	}
-	client.shouldStop = false
+	client.writerStopChan = make(chan bool, 1)
 	client.bar = nil
 }
 
@@ -75,27 +84,22 @@ func (client *Client) Do(m3u8url string) (reader io.Reader, err error) {
 		client.bar.Start()
 	}
 
+	workerChans := make([]chan []byte, client.NumWorkers)
+	for i := range workerChans {
+		workerChans[i] = make(chan []byte)
+	}
 	reader, writer := io.Pipe()
+	go client.writeServer(workerChans, writer, len(mediaPlaylist.Segments))
 
-	// The idea is that each worker is responsible for downloading segments
-	// at certain intervals. For example, if there are 4 workers, then
-	// worker 0 downloads segments 0, 4, 8, etc.; worker 1 downloads
-	// segments 1, 5, 9, etc.; and so on.
-	// To ensure that each segment is written in order, each worker gets two
-	// channels: one to check if it's OK to write, and one to tell the next
-	// worker that it's OK to write.
 	for i := 0; i < client.NumWorkers; i++ {
 		go client.downloadSegments(
 			i,
 			m3u8url,
 			mediaPlaylist.Segments,
-			writer,
-			client.syncChans[i],
-			client.syncChans[(i+1)%client.NumWorkers],
+			workerChans[i],
+			client.workerStopChans[i],
 		)
 	}
-	// Kick the ball to get it rolling
-	client.syncChans[0] <- true
 	return
 }
 
@@ -103,18 +107,9 @@ func (client *Client) downloadSegments(
 	idx int,
 	m3u8url string,
 	segments []*m3u8.MediaSegment,
-	writer *io.PipeWriter,
-	allowMe chan bool,
-	allowNext chan bool,
+	writeChan chan<- []byte,
+	stopChan <-chan bool,
 ) {
-	// The very last worker who writes a segment should be the one
-	// who closes the writer
-	if (len(segments)-1-idx)%client.NumWorkers == 0 {
-		defer writer.Close()
-		if client.EnableBar {
-			defer client.bar.Finish()
-		}
-	}
 	origIdx := idx
 	// TODO: propagate the errors back to the user without panicking
 	for ; idx < len(segments); idx += client.NumWorkers {
@@ -135,16 +130,36 @@ func (client *Client) downloadSegments(
 		if err != nil {
 			panic(err)
 		}
+		select {
+			case <-stopChan:
+				logger.Printf("Worker %d stopping early\n", origIdx)
+				return
+			case writeChan <- data:
+		}
+	}
+}
+
+func (client *Client) writeServer(
+	workerChans []chan []byte,
+	writer *io.PipeWriter,
+	numSegments int,
+) {
+	defer func() {
+		writer.Close()
+		if client.EnableBar {
+			client.bar.Finish()
+		}
+	}()
+	for i, j := 0, 0; i < numSegments; i, j = i+1, (j+1)%client.NumWorkers {
+		var chunk []byte
+		select {
+			case <-client.writerStopChan:
+				return
+			case chunk = <-workerChans[j]:
+		}
+		writer.Write(chunk)
 		if client.EnableBar {
 			client.bar.Increment()
-		}
-		<-allowMe
-		// TODO: deal with case where write fails
-		writer.Write(data)
-		allowNext <- true
-		if client.shouldStop {
-			logger.Printf("Worker %d stopping early\n", origIdx)
-			break
 		}
 	}
 }
